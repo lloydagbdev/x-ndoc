@@ -11,7 +11,32 @@ pub fn emit(writer: anytype, doc: Document) anyerror!void {
 
     try writer.writeAll("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>");
     try emitTitle(writer, doc);
-    try writer.writeAll("</title><style>body{max-width:70ch;margin:40px auto;padding:0 16px;font:16px/1.5 system-ui,sans-serif;}h1,h2,h3,h4,h5,h6{line-height:1.2;}code,pre{font-family:ui-monospace,SFMono-Regular,monospace;}pre{padding:12px;overflow:auto;background:#f6f8fa;border-radius:6px;}a{text-decoration:none;}a:hover{text-decoration:underline;}blockquote{margin:0;padding-left:1rem;border-left:3px solid #d0d7de;color:#57606a;}.footnotes{margin-top:32px;padding-top:16px;border-top:1px solid #d0d7de;}.footnotes ol{padding-left:20px;}</style></head><body>");
+    try writer.writeAll(
+        \\</title><style>
+        \\*{margin:0;padding:0;box-sizing:border-box}
+        \\body{max-width:70ch;margin:40px auto;padding:0 20px;font:16px/1.6 system-ui,-apple-system,sans-serif;color:#1a1a1a;background:#fafafa}
+        \\h1,h2,h3,h4{line-height:1.3;color:#111;margin-top:1.5em;margin-bottom:.4em}
+        \\h2{border-bottom:1px solid #e0e0e0;padding-bottom:.25em}
+        \\p{margin-bottom:.8em}
+        \\ul,ol{margin:.6em 0;padding-left:1.5em}
+        \\li{margin:.15em 0}
+        \\a{color:#2563eb;text-decoration:none}
+        \\a:hover,a:focus{text-decoration:underline}
+        \\code,pre{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:.92em}
+        \\pre{padding:14px 16px;overflow-x:auto;background:#f0f0f0;border-radius:8px;line-height:1.45;margin:.8em 0}
+        \\code{background:#eee;padding:2px 5px;border-radius:4px}
+        \\pre code{background:none;padding:0;border-radius:0}
+        \\blockquote{margin:.8em 0;padding-left:1rem;border-left:4px solid #d0d7de;color:#555}
+        \\section{margin:1.5em 0}
+        \\section.footnotes{margin-top:3em;padding-top:1em;border-top:2px solid #e0e0e0}
+        \\section.footnotes ol{padding-left:1.2em}
+        \\section.footnotes li{margin:.6em 0}
+        \\section.bibliography{margin-top:1em;padding:.8em 1em;background:#f0f4ff;border-radius:8px;border-left:4px solid #2563eb}
+        \\section.bibliography div{margin:.3em 0}
+        \\sup{font-size:.75em}
+        \\cite{font-style:normal}
+        \\</style></head><body>
+    );
     for (doc.roots) |root| try emitNode(writer, doc, root, 0);
     try writer.writeAll("</body></html>");
 }
