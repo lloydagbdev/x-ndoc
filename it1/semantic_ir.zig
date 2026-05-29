@@ -433,7 +433,7 @@ test "validate footnote refs target footnote defs" {
     const bad_doc = Document{
         .roots = &.{0},
         .nodes = &.{
-            .{ .kind = .document, .children = &.{1, 4} },
+            .{ .kind = .document, .children = &.{ 1, 4 } },
             .{ .kind = .paragraph, .children = &.{2} },
             .{ .kind = .reference, .children = &.{3} },
             .{ .kind = .text, .text = "1" },
@@ -452,7 +452,7 @@ test "validate citations target bibliography defs" {
     const bad_doc = Document{
         .roots = &.{0},
         .nodes = &.{
-            .{ .kind = .document, .children = &.{1, 4} },
+            .{ .kind = .document, .children = &.{ 1, 4 } },
             .{ .kind = .paragraph, .children = &.{2} },
             .{ .kind = .reference, .children = &.{3} },
             .{ .kind = .text, .text = "knuth84" },
@@ -500,7 +500,7 @@ test "validate rejects include cycles" {
     const bad_doc = Document{
         .roots = &.{0},
         .nodes = &.{
-            .{ .kind = .document, .children = &.{1, 2} },
+            .{ .kind = .document, .children = &.{ 1, 2 } },
             .{ .kind = .include },
             .{ .kind = .include },
         },
@@ -517,7 +517,7 @@ test "validate rejects invalid edge source kind" {
     const bad_doc = Document{
         .roots = &.{0},
         .nodes = &.{
-            .{ .kind = .document, .children = &.{1, 3} },
+            .{ .kind = .document, .children = &.{ 1, 3 } },
             .{ .kind = .paragraph, .children = &.{2} },
             .{ .kind = .text, .text = "plain text cannot source xrefs" },
             .{ .kind = .heading, .children = &.{4}, .name = "target" },

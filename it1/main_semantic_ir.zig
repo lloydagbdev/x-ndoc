@@ -106,7 +106,7 @@ fn sampleDoc(allocator: std.mem.Allocator) !Document {
     const bibliography_def_two = try builder.block(.bibliography_def, &.{bib_para_two}, "bib-lamport94");
 
     const section_one = try builder.block(.section, &.{
-        heading, paragraph, list, code_block, sub_heading, detail_para, nested_list,
+        heading,       paragraph, list, code_block, sub_heading, detail_para, nested_list,
         include_block,
     }, null);
 
