@@ -1,4 +1,4 @@
-## AsciiDoc Native IR Canvas
+## AsciiDoc Native IR Canvas as Ref
 
 ### 1. Core document structure
 
