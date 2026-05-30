@@ -7,6 +7,8 @@ const validate = @import("validate.zig");
 const traverse = @import("traverse.zig");
 const emit_html = @import("emit_html.zig");
 const hash_mod = @import("hash.zig");
+const privacy = @import("privacy.zig");
+const serialize_mod = @import("serialize.zig");
 
 pub fn main() !void {
     var arena_outer = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -53,12 +55,10 @@ pub fn main() !void {
         switch (event) {
             .node => |nr| {
                 node_count += 1;
-                std.debug.print("  N[{d}] {s}\n", .{ nr.index, @tagName(nr.entry.tag) });
                 try walker.pushNodeChildren(nr.entry);
             },
-            .inline_el => |ir| {
+            .inline_el => {
                 inline_count += 1;
-                std.debug.print("    I[{d}] {s}\n", .{ ir.index, @tagName(ir.entry.tag) });
             },
         }
     }
@@ -71,6 +71,36 @@ pub fn main() !void {
         std.debug.print("{x:0>2}", .{byte});
     }
     std.debug.print("\n\n", .{});
+
+    std.debug.print("=== Privacy scan (public policy) ===\n", .{});
+    var scan_result = try privacy.scanDocument(doc_arena, allocator);
+    defer scan_result.deinit();
+    std.debug.print("  total findings: {d}\n", .{scan_result.findings.len});
+    const audit = try privacy.applyPolicy(scan_result.findings, privacy.publicPolicy, allocator);
+    defer allocator.free(audit);
+    for (audit) |entry| {
+        std.debug.print("  [{s}] {s}\n", .{ @tagName(entry.kind), entry.original_slice });
+    }
+    if (audit.len == 0) {
+        std.debug.print("  (no sensitive content matched public policy)\n", .{});
+    }
+    std.debug.print("\n", .{});
+
+    std.debug.print("=== Binary serialization ===\n", .{});
+    const binary = try serialize_mod.serialize(allocator, doc_arena);
+    defer allocator.free(binary);
+    std.debug.print("  serialized size: {d} bytes\n", .{binary.len});
+
+    const v = try serialize_mod.validate(binary);
+    std.debug.print("  validated: {d} nodes, {d} inlines, {d} strings\n", .{ v.node_count, v.inline_count, v.string_count });
+
+    var roundtripped = try serialize_mod.deserialize(allocator, binary);
+    defer roundtripped.deinit();
+    const rt_match = roundtripped.nodes.len == doc_arena.nodes.len and
+        roundtripped.inlines.len == doc_arena.inlines.len and
+        roundtripped.sections.len == doc_arena.sections.len;
+    std.debug.print("  round-trip match: {s}\n", .{if (rt_match) "OK" else "FAIL"});
+    std.debug.print("\n", .{});
 
     std.debug.print("=== HTML output ===\n", .{});
     const html = try emit_html.emitHtml(allocator, doc_arena);

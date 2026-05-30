@@ -49,11 +49,13 @@ The author IR owns its memory via recursive `free` methods. The arena IR owns al
 | `traverse.zig` | 201 | Depth-first walker over arena spans |
 | `emit_html.zig` | 257 | HTML emitter from arena |
 | `hash.zig` | 243 | Semantic hashing with Blake3 |
+| `privacy.zig` | 423 | Privacy scanning, redaction, policy, audit log |
+| `serialize.zig` | — | Binary serialization, zero-copy view, owned load, author IR load |
 | `main.zig` | 429 | Round-trip smoke test + 12 unit tests |
 | `README.md` | 119 | Goals and plan |
 | `DESIGN.md` | — | This file |
 
-**Total: ~2400 lines of Zig across 9 files.**
+**Total: ~2800 lines of Zig across 10 files.**
 
 ---
 
@@ -410,7 +412,325 @@ Each structural element gets a unique byte marker. Open/close pairs distinguish 
 
 ---
 
-### 12. Zig 0.16 Migration Notes
+### 12. Privacy
+
+The privacy module (`privacy.zig`) provides first-class scanning, redaction, policy enforcement, and audit logging on the arena IR. It operates as a read-only module over the flat arrays — no change to the core tree is required.
+
+**Design principle:** Privacy is opt-in and operates at the operational layer, not the semantic layer. The arena provides all the data; the privacy module provides the policies. Downstream tools (emitters, exporters, APIs) can query privacy findings to decide what to output.
+
+**API:**
+
+| Function | Purpose |
+|---|---|
+| `scanDocument(doc, allocator) !ScanResult` | Walk the arena, detect sensitive content, return findings |
+| `redactString(text, strategy, allocator, replacement) ![]const u8` | Apply redaction to a single string |
+| `applyPolicy(findings, policy, allocator) ![]AuditEntry` | Filter findings against a policy, produce audit entries |
+
+**Pattern matchers:**
+
+| Detector | What it flags |
+|---|---|
+| `isEmail(text) bool` | `user@domain.tld` |
+| `isUrl(text) bool` | `http://` / `https://` prefixed strings |
+| `isApiKey(text) bool` | Strings starting with known key prefixes (`sk-`, `pk_`, `whsec_`, etc.) |
+| `isIpv4(text) bool` | Valid dotted-decimal IPv4 addresses (validated octet range) |
+| `isPhone(text) bool` | Strings with 7-15 digits and valid phone separators |
+
+**Redaction strategies:**
+
+| Strategy | Behavior |
+|---|---|
+| `mask` | Replace each character with `*`, preserving length |
+| `remove` | Return empty string |
+| `hash_content` | Replace with 64-char hex Blake3 digest of original content |
+| `replace` | Replace with a caller-provided string |
+
+**Scanning scope:**
+
+The scanner walks every string-bearing field in the arena:
+- Inline text (`doc.texts[].value`)
+- Link targets (`doc.links[].target`)
+- Reference targets (`doc.references[].target`)
+- Anchor names (`doc.anchors[].name`)
+- Section metadata: id, title, attrs (keys and values)
+- Block metadata: id, title, attrs (keys and values)
+- Document metadata: id, title, attrs (keys and values)
+
+Each finding records the `kind`, `location` (typed to the exact field), `offset`, `length`, and a copy of the original text.
+
+**Preset policies:**
+
+| Policy | Redacts | Strategy |
+|---|---|---|
+| `publicPolicy` | email, api_key, phone | mask |
+| `internalPolicy` | api_key only | mask |
+| `confidentialPolicy` | email, api_key, ipv4, phone, url | remove |
+| `strictPolicy` | everything | hash_content |
+
+**Location types:**
+
+```zig
+pub const Location = union(enum) {
+    text_inline: u32,
+    link_target: u32,
+    reference_target: u32,
+    anchor_name: u32,
+    metadata_id: u32,
+    metadata_title: u32,
+    metadata_attr: struct { node_idx: u32, entry_idx: u32, is_key: bool },
+    document_metadata_id,
+    document_metadata_title,
+    document_metadata_attr: struct { entry_idx: u32, is_key: bool },
+};
+```
+
+**Memory model:**
+
+The scanner allocates findings into its own `ArenaAllocator` returned as part of `ScanResult`. The caller calls `scan_result.deinit()` to release everything at once. Individual string redactions allocate via the caller's allocator and must be freed separately.
+
+**Tests:** 11 tests covering all matchers, all redaction strategies, policy filtering, and preset policy validation. All pass with no memory leaks.
+
+**Integration pattern:**
+
+```zig
+var scan_result = try privacy.scanDocument(doc_arena, allocator);
+defer scan_result.deinit();
+
+const entries = try privacy.applyPolicy(
+    scan_result.findings,
+    privacy.confidentialPolicy,
+    allocator,
+);
+defer allocator.free(entries);
+
+for (entries) |entry| {
+    // log entry for audit trail
+    // use entry.original_slice + entry.kind to redact
+}
+```
+
+**What's not in scope yet:**
+
+- Custom pattern definitions (regex or pluggable matchers)
+- Redacted arena cloning (producing a new `DocumentArena` with content replaced)
+- Content classification labels on nodes (can ride on `Metadata.attrs` today)
+- Integration with the HTML emitter for automatic output filtering
+- Differential privacy or statistical privacy guarantees
+
+---
+
+### 13. Serialization
+
+The serialization module (`serialize.zig`) provides a portable binary format for `DocumentArena` with three load paths: zero-copy borrowed view (read-only), owned deserialization (mutable arena), and author IR reconstruction (mutable tree).
+
+**Design goals:**
+
+1. Single portable binary blob — no external dependencies, no native struct dumps
+2. Zero-copy borrowed view — validate once, decode records on the fly from the original bytes
+3. Owned load — allocate and decode into a full `DocumentArena` for mutation
+4. Author IR load — reconstruct the recursive author tree from the arena (for future authoring tools)
+
+**Portability invariants** (from `strat_portability_invariants.md`):
+
+| Invariant | Rule |
+|---|---|
+| Endianness | All multi-byte fields little-endian |
+| Type widths | Fixed-width only (u8, u16, u32, u64) |
+| Padding | All reserved bytes zeroed; rejected if nonzero on read |
+| Field order | Declaration-ordered, no reordering |
+| No native dumps | All records manually encoded/decoded field-by-field |
+| No platform deps | No paths, timestamps, locale, or filesystem references |
+
+#### Binary Layout
+
+```
+┌──────────────────────────────────────────┐
+│ Header (fixed size, ~80 bytes)            │
+│   magic: "XNDOC\0" (6 bytes)             │
+│   format_version: u16 LE (currently 1)   │
+│   ir_version: u16 LE      (currently 1)  │
+│   flags: u32 LE                          │
+│   ── typed array counts (u32 each) ──    │
+│   node_entries, inline_entries, sections, │
+│   paragraphs, lists, list_items, tables,  │
+│   rows, cells, blocks, texts, links,      │
+│   references, anchors, emphases, strongs, │
+│   diagnostics, roots, string_refs,        │
+│   kv_pairs                               │
+│   bytes_len: u64 LE                      │
+│   ── document metadata refs ──           │
+│   doc_meta_id, doc_meta_title (u32)      │
+│   doc_meta_roles{first_ref,count} (8)    │
+│   doc_meta_attrs{first_kv,count} (8)     │
+├──────────────────────────────────────────┤
+│ NodeEntry records      (5 bytes each)     │
+│ InlineEntry records    (5 bytes each)     │
+│ SectionData records    (28 bytes each)    │
+│ ParagraphData records  (8 bytes each)     │
+│ ListData records       (9 bytes each)     │
+│ ListItemData records   (8 bytes each)     │
+│ TableData records      (8 bytes each)     │
+│ TableRowData records   (8 bytes each)     │
+│ TableCellData records  (8 bytes each)     │
+│ BlockData records      (24 bytes each)    │
+│ TextData records       (4 bytes each)     │
+│ LinkData records       (8 bytes each)     │
+│ ReferenceData records  (8 bytes each)     │
+│ AnchorData records     (4 bytes each)     │
+│ EmphasisData records   (8 bytes each)     │
+│ StrongData records     (8 bytes each)     │
+│ Diagnostic records     (4 bytes each)     │
+│ Root indices           (u32 each)         │
+│ StringRef records      (8 bytes each)     │
+│ KVPair records         (8 bytes each)     │
+├──────────────────────────────────────────┤
+│ Byte arena (packed UTF-8 string data)    │
+└──────────────────────────────────────────┘
+```
+
+Sections are laid out sequentially after the header. Reader computes each section's offset from header → count × record_size → accumulated offset. No TOC table needed since all counts are known up front and record sizes are constant.
+
+#### Disk Record Types
+
+All nullable `u32` fields use `0xFFFFFFFF` as the null sentinel.
+
+| In-memory | Disk record | Bytes |
+|---|---|---|
+| `NodeEntry` | `{ tag: u8, index: u32 }` | 5 |
+| `InlineEntry` | `{ tag: u8, index: u32 }` | 5 |
+| `SectionData` | `{ meta: MetadataDisk, title_ref: u32, first_child: u32, child_count: u32 }` | 28 |
+| `ParagraphData` | `{ first_inline: u32, inline_count: u32 }` | 8 |
+| `ListData` | `{ kind: u8, first_item: u32, item_count: u32 }` | 9 |
+| `ListItemData` | `{ first_child: u32, child_count: u32 }` | 8 |
+| `TableData` | `{ first_row: u32, row_count: u32 }` | 8 |
+| `TableRowData` | `{ first_cell: u32, cell_count: u32 }` | 8 |
+| `TableCellData` | `{ first_child: u32, child_count: u32 }` | 8 |
+| `BlockData` | `{ meta: MetadataDisk, first_child: u32, child_count: u32 }` | 24 |
+| `TextData` | `{ value_ref: u32 }` | 4 |
+| `LinkData` | `{ target_ref: u32, label: u32 }` | 8 |
+| `ReferenceData` | `{ target_ref: u32, label: u32 }` | 8 |
+| `AnchorData` | `{ name_ref: u32 }` | 4 |
+| `EmphasisData` | `{ first_inline: u32, inline_count: u32 }` | 8 |
+| `StrongData` | `{ first_inline: u32, inline_count: u32 }` | 8 |
+| `DiagnosticDisk` | `{ message_ref: u32 }` | 4 |
+| `StringRef` | `{ start: u32, len: u32 }` | 8 |
+| `KVPairDisk` | `{ key_ref: u32, value_ref: u32 }` | 8 |
+| `MetadataDisk` | `{ id_ref: u32, title_ref: u32, roles_first: u32, roles_count: u32, attrs_first: u32, attrs_count: u32 }` | 24 |
+
+**MetadataDisk format:**
+
+All string fields reference the string_refs table. `roles` is a contiguous span of role string refs. `attrs` is a contiguous span of KVPair entries.
+
+**StringRef format:**
+
+```
+{ start: u32, len: u32 }
+```
+Points into the packed byte arena at the end of the file. `start + len` must not exceed `bytes_len`.
+
+#### String Storage
+
+All strings are collected into a single packed byte arena at the end of the file. Strings are referenced by index into the string_refs table. No deduplication — each occurrence gets its own StringRef entry and its own bytes in the arena.
+
+During serialization, all arena strings (text values, metadata ids/titles, link targets, anchor names, etc.) are iterated in declaration order and appended to the byte arena. Each string gets a `StringRef { start, len }`.
+
+#### API
+
+```zig
+// Write
+pub fn serialize(writer, doc: DocumentArena) !void;
+
+// Validate only (no allocation)
+pub fn validate(bytes: []const u8) !ValidationReport;
+
+// Owned load → full DocumentArena (for mutation)
+pub fn deserialize(allocator, bytes: []const u8) !DocumentArena;
+
+// Zero-copy borrowed view (for read-only operations)
+pub fn view(bytes: []const u8) !BorrowedArenaView;
+
+// Author IR load (reconstruct recursive tree)
+pub fn deserializeToAuthorIr(allocator, bytes: []const u8) !author.Document;
+```
+
+#### Three Load Paths
+
+| Path | Speed | Mutation | Use case |
+|---|---|---|---|
+| `view()` | Fastest (zero-copy) | No | Emit, hash, validate, privacy scan |
+| `deserialize()` | Medium (allocate + decode) | Yes (arena) | Transforms, bulk operations |
+| `deserializeToAuthorIr()` | Slowest (reconstruct tree) | Yes (full) | Future authoring tools |
+
+#### BorrowedArenaView
+
+```zig
+pub const BorrowedArenaView = struct {
+    raw: []const u8,           // original bytes (caller must keep alive)
+    header: HeaderDisk,
+    node_entries:   []const u8,  // raw record bytes
+    inline_entries: []const u8,
+    sections:       []const u8,
+    paragraphs:     []const u8,
+    lists:          []const u8,
+    list_items:     []const u8,
+    tables:         []const u8,
+    rows:           []const u8,
+    cells:          []const u8,
+    blocks:         []const u8,
+    texts:          []const u8,
+    links:          []const u8,
+    references_:    []const u8,
+    anchors:        []const u8,
+    emphases:       []const u8,
+    strongs:        []const u8,
+    diagnostics:    []const u8,
+    roots:          []const u8,
+    string_refs:    []const u8,
+    kv_pairs:       []const u8,
+    bytes_arena:    []const u8,
+
+    pub fn getNodeEntry(self, idx: u32) NodeEntry;
+    pub fn getInlineEntry(self, idx: u32) InlineEntry;
+    pub fn getSection(self, idx: u32) SectionData;
+    pub fn getString(self, ref_idx: u32) []const u8;
+    pub fn getMetadata(self, meta: MetadataDisk) Metadata;
+    pub fn nodeCount(self, tag: NodeTag) usize;
+    pub fn inlineCount(self, tag: InlineTag) usize;
+};
+```
+
+Each `get*` method decodes the disk record from raw bytes. No allocation. The caller must keep the original `raw` byte slice alive.
+
+#### Owned Load Path
+
+`deserialize()` validates, allocates typed arrays via an inner ArenaAllocator, decodes all disk records into native structs, and returns a `DocumentArena`. The caller calls `doc.deinit()` to release all memory at once. There is no intermediate allocation that the caller needs to track — the arena owns everything.
+
+#### Author IR Load
+
+`deserializeToAuthorIr()` first deserializes into a `DocumentArena`, then walks the arena roots and reconstructs the recursive `author.Document` tree. Each author node allocates its children from the caller's allocator. The caller calls `doc.deinit()` to release. This path is intentionally slower but enables the full mutation surface of the author IR.
+
+#### Validation
+
+The validator checks:
+- Magic bytes match `"XNDOC\0"`
+- Format version is supported
+- All record offsets are within bounds
+- All string refs are within the byte arena
+- Null sentinels are `0xFFFFFFFF` (no other null value accepted)
+- No nonzero bytes in reserved fields
+- Count fields are consistent (e.g., `node_entries_count` matches the actual binary)
+
+#### What This Enables
+
+- **Cache parsed documents** as `.xndoc` binary files
+- **Fast reload** for CI pipelines, build tools, preview servers
+- **Zero-copy emission** from stored documents (no re-parse)
+- **Privacy scanning** on stored documents without full deserialization
+- **Future authoring tools** can load as mutable author IR via `deserializeToAuthorIr()`
+
+---
+
+### 14. Zig 0.16 Migration Notes
 
 it3 targets Zig 0.16.0. Several standard library APIs changed from earlier versions:
 
@@ -470,7 +790,7 @@ fn lowerNode(...) LowerError!NodeIndex { ... }
 
 ---
 
-### 13. Lessons Learned
+### 15. Lessons Learned
 
 **Roots tracking was needed:** The original elements.md spec did not include a `roots` field in `DocumentArena`. Without it, all nodes in the flat array were treated as top-level, causing HTML emission to duplicate content (parent nodes emitted their children, and children were also emitted independently). Adding `roots: []NodeIndex` resolved this cleanly.
 
@@ -486,7 +806,7 @@ fn lowerNode(...) LowerError!NodeIndex { ... }
 
 ---
 
-### 14. Running
+### 16. Running
 
 **Smoke test:**
 
@@ -521,5 +841,21 @@ Runs 12 tests:
 10. Semantic hash detects content difference
 11. Semantic hash detects list kind difference
 12. Semantic hash includes link target
+
+**Privacy tests:**
+
+```bash
+zig test privacy.zig
+```
+
+Runs 11 tests: email/url/api_key/ipv4/phone detection, all four redaction strategies, policy filtering, and preset policy validation.
+
+**Integration tests (main.zig):**
+
+```bash
+zig test main.zig
+```
+
+Runs 12 tests covering the builder, round-trip, validation, traversal, HTML output, metadata, and 5 semantic hash tests.
 
 **Note:** Two tests report memory leaks from `std.testing.allocator` (the debug allocator). These are test cleanup issues in the builder and validation modules, not production bugs. The builder test creates nodes without freeing them, and the validation test's `seen_refs` HashMap does not free its duplicated keys.
