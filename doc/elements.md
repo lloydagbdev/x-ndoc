@@ -1,354 +1,483 @@
-## AsciiDoc Native IR Canvas as Ref
+## Semantic IR Surface
 
-### 1. Core document structure
-
-| Element                 | Definition                                                                                                   |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------ |
-| **Document**            | Root container for the entire AsciiDoc file. Holds document metadata, attributes, and top-level content.     |
-| **Section**             | A heading and everything nested under it. Sections form the main hierarchy of the document.                  |
-| **Paragraph**           | A block of normal prose text. Usually contains inline elements such as text, links, emphasis, and footnotes. |
-| **Block title**         | A title attached to the block that follows it, such as a titled table, example, or image.                    |
-| **Attribute entry**     | A document-level or block-level key-value setting.                                                           |
-| **Attribute reference** | A placeholder that resolves to an attribute value.                                                           |
+This document defines the minimal semantic surface for the project's IR.
+It is format-neutral and only includes what is needed as a source of truth.
+Known document formats are referenced only as mapping aids, not as the model itself.
 
 ---
 
-### 2. Inline elements
+### Core nodes
 
-| Element                | Definition                                                                   |
-| ---------------------- | ---------------------------------------------------------------------------- |
-| **Text**               | Plain textual content.                                                       |
-| **Strong**             | Bold inline content.                                                         |
-| **Emphasis**           | Italic inline content.                                                       |
-| **Monospace**          | Inline literal or code-style content.                                        |
-| **Mark**               | Highlighted text.                                                            |
-| **Superscript**        | Text raised above the baseline.                                              |
-| **Subscript**          | Text lowered below the baseline.                                             |
-| **Link**               | External URL or link macro.                                                  |
-| **Cross-reference**    | Internal reference to another section, anchor, figure, table, or block.      |
-| **Anchor**             | Named target that can be referenced elsewhere.                               |
-| **Footnote**           | Inline note rendered separately, usually at the bottom of a page or section. |
-| **Inline image**       | Image embedded inside a text flow.                                           |
-| **Line break**         | Explicit line break inside inline content.                                   |
-| **Inline passthrough** | Raw inline content passed directly to the output backend.                    |
+| Element | Purpose | Known format references |
+| --- | --- | --- |
+| **Document** | The top-level semantic container for a single authored source. Holds the whole tree plus document-scoped metadata and resolution state. | AsciiDoc document, Markdown document, HTML document, DocBook article/book |
+| **Section** | A hierarchical region introduced by a heading-like boundary. Used to preserve outline structure and nesting. | AsciiDoc section, Markdown heading section, HTML `section`, DocBook `section` |
+| **Paragraph** | A block of flowing prose content. This is the default container for normal narrative text. | AsciiDoc paragraph, Markdown paragraph, HTML `p`, DocBook `para` |
+| **List** | A grouped sequence of related items with an explicit ordering or semantic list type. | Markdown list, HTML `ul`/`ol`/`dl`, DocBook list types |
+| **List item** | One semantic unit inside a list. May contain paragraphs, nested lists, or other blocks depending on list type. | Markdown list item, HTML `li`, DocBook `listitem` |
+| **Table** | A grid of related rows and cells used for structured comparison or catalog data. | Markdown table, HTML `table`, DocBook `table` |
+| **Table row** | One horizontal row of table cells. | HTML `tr`, DocBook row, spreadsheet row concept |
+| **Table cell** | One cell within a row. May carry inline content or richer nested blocks depending on policy. | HTML `td`/`th`, DocBook `entry` |
+| **Block** | Generic block container used when meaning is known but the exact subtype is not yet required. | HTML `div`, DocBook wrapper patterns, generic AST block |
+| **Inline** | Generic inline container used when meaning is known but the exact subtype is not yet required. | HTML `span`, generic AST inline |
 
 ---
 
-### 3. List elements
+### Inline meaning
 
-| Element              | Definition                                                                              |
-| -------------------- | --------------------------------------------------------------------------------------- |
-| **List**             | Container for ordered, unordered, checklist, callout, or description-style items.       |
-| **List item**        | One item inside a list. Can contain paragraphs, nested lists, blocks, or other content. |
-| **Description list** | A list made of terms and descriptions.                                                  |
-| **Description item** | One term and its associated explanation or body content.                                |
-| **Callout list**     | List that explains numbered callouts inside source code or listing blocks.              |
-| **Checklist item**   | A list item with checked, unchecked, or indeterminate task state.                       |
-
----
-
-### 4. Block elements
-
-| Element               | Definition                                                                        |
-| --------------------- | --------------------------------------------------------------------------------- |
-| **Admonition**        | A semantic warning-style block such as Note, Tip, Important, Caution, or Warning. |
-| **Listing block**     | Source code or terminal-style block.                                              |
-| **Literal block**     | Preformatted literal text.                                                        |
-| **Example block**     | A general example container.                                                      |
-| **Quote block**       | Quoted text, optionally with attribution or citation.                             |
-| **Sidebar block**     | Side content separated from the main flow.                                        |
-| **Open block**        | Generic container block that can act as a wrapper for other content.              |
-| **Passthrough block** | Raw backend-specific block content.                                               |
-| **Image block**       | Standalone image block.                                                           |
-| **Include**           | Directive that pulls in content from another file.                                |
-| **Comment**           | Non-rendered author/editor note.                                                  |
-| **Conditional block** | Content included or excluded depending on document attributes or backend.         |
-| **Thematic break**    | Horizontal divider.                                                               |
-| **Page break**        | Explicit page break for paged outputs.                                            |
+| Element | Purpose | Known format references |
+| --- | --- | --- |
+| **Text** | Literal textual content with no additional semantic decoration. | Plain text in all formats |
+| **Link** | A navigable pointer to a URL, file, or internal target. May be resolved or unresolved. | Markdown link, HTML `a`, AsciiDoc link macro |
+| **Reference** | A pointer to another document entity such as a section, figure, table, or anchor. | Cross-reference in AsciiDoc, internal link in HTML, reference semantics in DocBook/DITA |
+| **Anchor** | A named target that other nodes can resolve against. | HTML `id`, AsciiDoc anchor, DocBook `xml:id` |
+| **Emphasis** | Inline emphasis that changes meaning or rhetorical weight without changing the underlying text. | Markdown `_em_`, HTML `em`, DocBook emphasis |
+| **Strong** | Strong emphasis used for importance, warning, or salience. | Markdown `**strong**`, HTML `strong`, DocBook `emphasis role="strong"` |
 
 ---
 
-### 5. Table elements
+### Metadata and resolution
 
-| Element          | Definition                                                                            |
-| ---------------- | ------------------------------------------------------------------------------------- |
-| **Table**        | Container for rows, columns, and cells.                                               |
-| **Table column** | Column-level formatting metadata such as width, alignment, or content style.          |
-| **Table row**    | One horizontal row of cells.                                                          |
-| **Table cell**   | Individual table cell. Can contain raw text, inline content, or nested block content. |
-| **Table header** | Header row or cells used to label columns.                                            |
-| **Table footer** | Footer row or cells, depending on backend support.                                    |
-
----
-
-### 6. Media and references
-
-| Element                | Definition                                                     |
-| ---------------------- | -------------------------------------------------------------- |
-| **Image**              | Inline or block-level image reference.                         |
-| **Video**              | Embedded or linked video media, if supported by the processor. |
-| **Audio**              | Embedded or linked audio media, if supported by the processor. |
-| **Bibliography entry** | Reference entry for citations.                                 |
-| **Index term**         | Term inserted into an index.                                   |
-| **Glossary term**      | Term and definition used in glossary-like documents.           |
+| Element | Purpose | Known format references |
+| --- | --- | --- |
+| **Metadata** | Identity and descriptive data attached to a node, typically including identifiers, labels, and bookkeeping fields. | AsciiDoc attributes/roles, HTML metadata patterns, DocBook attributes |
+| **Attributes** | Key-value data carried with nodes or document scope. Used for document-wide state, block options, or resolution inputs. | AsciiDoc attributes, HTML attributes, DocBook attributes |
+| **Role** | A semantic classifier or secondary label used to group meaning without inventing a new node type. | HTML class, AsciiDoc role, DocBook role |
+| **Title** | Human-facing label attached to a node, usually displayed as the primary caption or heading text. | HTML heading/title text, AsciiDoc block title, DocBook title |
+| **Diagnostic** | A parser or resolver message describing warnings, errors, or informational conditions. Not part of the authored content itself. | Compiler diagnostic, linter message, parser warning |
 
 ---
 
-### 7. Metadata and processor support
+### Minimal semantic scope
 
-| Element               | Definition                                                                                          |
-| --------------------- | --------------------------------------------------------------------------------------------------- |
-| **Metadata**          | Shared node information such as ID, title, roles, options, and attributes.                          |
-| **Role**              | Semantic or styling class attached to an element.                                                   |
-| **Option**            | Behavior modifier such as header, autowidth, interactive checklist, or special substitutions.       |
-| **Substitution rule** | Defines how text is transformed: attributes, macros, quotes, replacements, passthroughs, and so on. |
-| **Diagnostic**        | Parser or resolver message: warning, error, or informational note.                                  |
-| **Custom element**    | Extension point for processor-specific or unknown nodes.                                            |
+This stage should model only the meaning required to preserve and resolve documentation correctly.
+
+Prefer generic nodes when:
+
+| Case | Preferred shape |
+| --- | --- |
+| The exact subtype does not change resolution or identity | `Block` or `Inline` |
+| The data is purely descriptive | `Metadata`, `Attributes`, or `Title` |
+| The data only affects later expansion or rendering | keep it out of core semantics for now |
+| A format-specific feature has no cross-format meaning yet | defer it |
 
 ---
 
-## Hierarchy examples
+### Deferred until needed
 
-### Example 1: Basic article hierarchy
+The following are not part of the core semantic surface yet and should be added only when the IR requires them:
+
+| Element | Reason | Known format references |
+| --- | --- | --- |
+| **Admonition** | Can be represented later as a specialized block subtype when warning/tip semantics matter to the core model. | AsciiDoc admonition, Markdown blockquote-admonition conventions, DITA note/caution/warning |
+| **Quote** | Useful when quoted text needs provenance or attribution, but not required for the minimal tree. | HTML `blockquote`, Markdown blockquote, DocBook `blockquote` |
+| **Code / Literal** | Add when code, fixed-width text, or executable examples need distinct treatment. | Markdown code fence, HTML `code`/`pre`, DocBook `programlisting` |
+| **Image / Media** | Add when embedded media becomes a source-of-truth concern instead of a render concern. | Markdown image, HTML `img`, DocBook `mediaobject` |
+| **Footnote** | Add when citations or note placement need explicit semantic round-tripping. | AsciiDoc footnote, Markdown footnote extensions, HTML footnote patterns |
+| **Include / Conditional** | Better treated as resolution mechanics because they affect document assembly rather than authored meaning. | AsciiDoc include, preprocessor directives, DITA conref/conkeyref |
+| **Passthrough** | Backend-specific or escape-hatch behavior, not core semantics. | HTML raw passthrough, AsciiDoc passthrough, template escape hatches |
+
+---
+
+### Hierarchy examples
+
+#### Example 1: Basic document hierarchy
 
 ```text
 Document
 └── Section: Introduction
     ├── Paragraph
     │   ├── Text
-    │   ├── Emphasis
     │   └── Link
     └── Section: Background
         └── Paragraph
             ├── Text
-            └── Cross-reference
+            └── Reference
 ```
 
-Meaning: a document contains a section, which contains a paragraph and a nested subsection. Paragraphs contain inline elements.
+Meaning: a document contains sections, and sections contain paragraphs plus nested sections.
 
 ---
 
-### Example 2: Section with an admonition
+#### Example 2: Section with metadata and emphasis
 
 ```text
 Document
 └── Section: Installation
-    ├── Paragraph
-    │   └── Text
-    └── Admonition: Warning
-        └── Paragraph
-            ├── Text
-            └── Strong
+    ├── Title
+    ├── Metadata
+    └── Paragraph
+        ├── Text
+        └── Strong
 ```
 
-Meaning: admonitions are block-level elements. Their body can contain normal block content, usually paragraphs, lists, or nested blocks.
+Meaning: semantic metadata is attached to the node, while inline meaning stays inside the paragraph.
 
 ---
 
-### Example 3: List with nested content
+#### Example 3: List with nested content
 
 ```text
 Document
 └── Section: Setup Steps
-    └── List: Ordered
+    └── List
         ├── List item
         │   └── Paragraph
         │       └── Text
         ├── List item
         │   ├── Paragraph
         │   │   └── Text
-        │   └── List: Unordered
+        │   └── List
         │       ├── List item
-        │       │   └── Paragraph
         │       └── List item
-        │           └── Paragraph
         └── List item
             └── Paragraph
                 ├── Text
-                └── Inline image
+                └── Inline
 ```
 
-Meaning: list items should be treated as containers, not just plain strings. They can hold paragraphs, nested lists, images, admonitions, and other blocks.
+Meaning: list items are containers, not flat strings.
 
 ---
 
-### Example 4: Table hierarchy
+#### Example 4: Table hierarchy
 
 ```text
 Document
 └── Section: API Summary
     └── Table
-        ├── Table column
-        ├── Table column
-        ├── Table row: Header
+        ├── Table row
         │   ├── Table cell
-        │   │   └── Text
         │   └── Table cell
-        │       └── Text
         └── Table row
             ├── Table cell
             │   └── Paragraph
             └── Table cell
                 └── List
-                    ├── List item
-                    └── List item
 ```
 
-Meaning: table cells can contain more than plain text. In AsciiDoc, cells may contain paragraphs, lists, source blocks, or nested AsciiDoc content depending on cell style.
+Meaning: table cells may contain richer semantic content, not just text.
 
 ---
 
-### Example 5: Source block with callouts
+#### Example 5: Anchor and reference
 
 ```text
 Document
-└── Section: Example
-    ├── Listing block
-    │   ├── Source text
-    │   └── Callout markers
-    └── Callout list
-        ├── Callout item
-        │   └── Paragraph
-        └── Callout item
-            └── Paragraph
+├── Section: Overview
+│   ├── Anchor
+│   └── Paragraph
+└── Section: Details
+    └── Paragraph
+        ├── Text
+        └── Reference
 ```
 
-Meaning: callouts connect annotations in source code to explanatory list items. The IR should preserve that relationship.
+Meaning: references point across the document tree and require resolvable targets such as anchors.
 
 ---
 
-### Example 6: Image with title and metadata
+### Suggested Zig data structures
 
-```text
-Document
-└── Section: Architecture
-    └── Image block
-        ├── Block title
-        ├── Target
-        ├── Alt text
-        ├── Attributes
-        └── Anchor
+These are starter shapes for the IR, not a final API.
+They keep the semantic core small and allow format-specific features to stay outside the core tree.
+
+```zig
+const std = @import("std");
+
+pub const NodeId = u32;
+
+pub const Document = struct {
+    metadata: Metadata,
+    blocks: []Node,
+};
+
+pub const Node = union(enum) {
+    section: Section,
+    paragraph: Paragraph,
+    list: List,
+    table: Table,
+    block: Block,
+    inline: Inline,
+    diagnostic: Diagnostic,
+};
+
+pub const Section = struct {
+    metadata: Metadata,
+    title: ?[]const u8,
+    children: []Node,
+};
+
+pub const Paragraph = struct {
+    content: []Inline,
+};
+
+pub const List = struct {
+    kind: ListKind,
+    items: []ListItem,
+};
+
+pub const ListKind = enum {
+    ordered,
+    unordered,
+    task,
+    description,
+};
+
+pub const ListItem = struct {
+    children: []Node,
+};
+
+pub const Table = struct {
+    rows: []TableRow,
+};
+
+pub const TableRow = struct {
+    cells: []TableCell,
+};
+
+pub const TableCell = struct {
+    children: []Node,
+};
+
+pub const Block = struct {
+    metadata: Metadata,
+    children: []Node,
+};
+
+pub const Inline = union(enum) {
+    text: []const u8,
+    link: Link,
+    reference: Reference,
+    anchor: Anchor,
+    emphasis: []Inline,
+    strong: []Inline,
+};
+
+pub const Link = struct {
+    target: []const u8,
+    label: ?[]const u8 = null,
+};
+
+pub const Reference = struct {
+    target: []const u8,
+    label: ?[]const u8 = null,
+};
+
+pub const Anchor = struct {
+    name: []const u8,
+};
+
+pub const Metadata = struct {
+    id: ?[]const u8 = null,
+    title: ?[]const u8 = null,
+    roles: []const []const u8 = &.{},
+    attrs: std.StringHashMapUnmanaged([]const u8) = .{},
+};
+
+pub const Diagnostic = struct {
+    message: []const u8,
+};
 ```
 
-Meaning: images often need structured metadata: target path, alt text, title, ID, roles, dimensions, and output options.
+Notes:
+
+| Choice | Why it fits |
+| --- | --- |
+| `union(enum)` for `Node` and `Inline` | Keeps shape explicit while staying easy to extend. |
+| `[]Node` / `[]Inline` children | Lets blocks and paragraphs own ordered content naturally. |
+| `Metadata` as a reusable struct | Keeps identity, labels, roles, and attributes consistent across nodes. |
+| `StringHashMapUnmanaged` for attributes | Practical for a small, flexible key-value surface. Requires an external allocator for `put`, `remove`, and `deinit` operations; construction helpers should manage this. |
+| `ListKind` as an enum | Covers the current list semantics without committing to format-specific subtypes. |
 
 ---
 
-### Example 7: Quote block
+### Suggested DoD-oriented Zig structures
 
-```text
-Document
-└── Section: Motivation
-    └── Quote block
-        ├── Attribution
-        ├── Citation
-        └── Paragraph
-            ├── Text
-            └── Emphasis
+This variant favors flat storage, dense traversal, and index-based relationships.
+It is better suited for bulk transforms, resolution passes, and cache-friendly iteration.
+
+```zig
+const std = @import("std");
+
+pub const NodeIndex = u32;
+pub const InlineIndex = u32;
+
+pub const DocumentArena = struct {
+    metadata: Metadata,
+    nodes: []NodeEntry,
+    inlines: []InlineEntry,
+    sections: []SectionData,
+    paragraphs: []ParagraphData,
+    lists: []ListData,
+    list_items: []ListItemData,
+    tables: []TableData,
+    rows: []TableRowData,
+    cells: []TableCellData,
+    blocks: []BlockData,
+    texts: []TextData,
+    links: []LinkData,
+    references: []ReferenceData,
+    anchors: []AnchorData,
+    emphases: []EmphasisData,
+    strongs: []StrongData,
+    diagnostics: []Diagnostic,
+};
+
+pub const NodeTag = enum {
+    section,
+    paragraph,
+    list,
+    list_item,
+    table,
+    table_row,
+    table_cell,
+    block,
+};
+
+pub const NodeEntry = struct {
+    tag: NodeTag,
+    index: u32,
+};
+
+pub const InlineTag = enum {
+    text,
+    link,
+    reference,
+    anchor,
+    emphasis,
+    strong,
+};
+
+pub const InlineEntry = struct {
+    tag: InlineTag,
+    index: u32,
+};
+
+pub const SectionData = struct {
+    metadata: Metadata,
+    title: ?[]const u8,
+    first_child: ?NodeIndex,
+    child_count: u32,
+};
+
+pub const ParagraphData = struct {
+    first_inline: ?InlineIndex,
+    inline_count: u32,
+};
+
+pub const ListKind = enum {
+    ordered,
+    unordered,
+    task,
+    description,
+};
+
+pub const ListData = struct {
+    kind: ListKind,
+    first_item: ?NodeIndex,
+    item_count: u32,
+};
+
+pub const ListItemData = struct {
+    first_child: ?NodeIndex,
+    child_count: u32,
+};
+
+pub const TableData = struct {
+    first_row: ?NodeIndex,
+    row_count: u32,
+};
+
+pub const TableRowData = struct {
+    first_cell: ?NodeIndex,
+    cell_count: u32,
+};
+
+pub const TableCellData = struct {
+    first_child: ?NodeIndex,
+    child_count: u32,
+};
+
+pub const BlockData = struct {
+    metadata: Metadata,
+    first_child: ?NodeIndex,
+    child_count: u32,
+};
+
+pub const TextData = struct {
+    value: []const u8,
+};
+
+pub const LinkData = struct {
+    target: []const u8,
+    label: ?InlineIndex,
+};
+
+pub const ReferenceData = struct {
+    target: []const u8,
+    label: ?InlineIndex,
+};
+
+pub const AnchorData = struct {
+    name: []const u8,
+};
+
+pub const EmphasisData = struct {
+    first_inline: ?InlineIndex,
+    inline_count: u32,
+};
+
+pub const StrongData = struct {
+    first_inline: ?InlineIndex,
+    inline_count: u32,
+};
 ```
 
-Meaning: quote blocks should keep attribution and citation separate from the quoted body.
+Notes:
+
+| Choice | Why it fits |
+| --- | --- |
+| Flat tables of typed payloads | Good for sequential scanning and pass-based transforms. |
+| `tag` + `index` entries | Keeps a compact top-level node stream while payload lives in typed arrays. |
+| `first_*` + `*_count` spans | Represents ordered children without nested ownership. |
+| Index-based inline references | Avoids deep recursive structures in hot paths. |
+| Inline payload arrays in `DocumentArena` | Mirrors the node pattern: `InlineEntry` tags index into typed arrays (`texts`, `links`, `references`, `anchors`, `emphases`, `strongs`). |
+| Diagnostics stored separately | Diagnostics are not part of the node stream; they live in a flat `diagnostics` array outside the `NodeTag` enum. |
+| Separate `DocumentArena` | Gives a single container for parsing, resolution, and render preparation. |
 
 ---
 
-### Example 8: Include and resolved content
+### Proposed operational layer
 
-Before resolution:
+These are supporting capabilities that operate on the IR without being part of the core semantic tree.
+They help validate, normalize, compare, and safely construct documents.
 
-```text
-Document
-├── Section: Main
-└── Include
-    ├── Target: chapter-one.adoc
-    └── Attributes
-```
+| Operation | Purpose | Notes |
+| --- | --- | --- |
+| **Validation** | Check structural correctness, required fields, and invariants. | Examples: section ordering, table row consistency, unresolved references. |
+| **Verification** | Confirm the IR matches an expected meaning or canonical form. | Useful for round-trip checks and regression tests. |
+| **Semantic hashing** | Produce stable hashes from meaning-bearing fields. | Ignore render-only or incidental data; useful for cache keys and equivalence checks. |
+| **Normalization** | Convert equivalent forms into a canonical representation. | Example: merge adjacent text nodes, sort stable metadata fields, normalize list kinds. |
+| **Privacy helpers** | Detect or redact sensitive content before export, logging, or diagnostics. | Example: redact secrets in text, metadata, or attributes. |
+| **Construction helpers** | Provide safe builders for nodes, metadata, and relationships. | Prevent malformed trees and reduce repetitive allocation/setup code. |
+| **Resolution helpers** | Connect references, anchors, includes, and derived identities. | This is operational even when the resulting relation is semantic. |
+| **Traversal helpers** | Offer stable iteration, search, and query utilities over the IR. | Useful for analysis, linting, and render prep. |
+| **Diff helpers** | Compare two IR instances at semantic or structural levels. | Helpful for testing and document sync workflows. |
 
-After resolution:
+Possible supporting APIs:
 
-```text
-Document
-├── Section: Main
-└── Section: Chapter One
-    ├── Paragraph
-    └── List
-```
+| API shape | Use |
+| --- | --- |
+| `validate(document)` | Return diagnostics for malformed or incomplete structure. |
+| `hashSemantic(document)` | Produce a semantic digest for equivalence checks. |
+| `normalize(document)` | Return a canonicalized copy or in-place normalized form. |
+| `redact(document, policy)` | Produce a privacy-safe view of the IR. |
+| `buildSection(...)` / `buildParagraph(...)` | Simplify construction and enforce invariants. |
 
-Meaning: the parser may first create an Include node, then the semantic resolver may replace or expand it into real document content.
+### Guiding rule
 
----
+Prefer the smallest node set that preserves meaning.
+If a concept can be modeled as metadata or a generic block/inline, keep it generic until a concrete use case requires specialization.
 
-## Recommended IR layers
-
-### Parse IR
-
-Captures what the source literally contains.
-
-```text
-Parse IR
-├── Raw lines
-├── Delimiters
-├── Block titles
-├── Attribute entries
-├── Include directives
-├── Conditional directives
-├── Comments
-└── Unresolved inline macros
-```
-
-### Semantic IR
-
-Captures what the document means after resolution.
-
-```text
-Semantic IR
-├── Document
-├── Sections
-├── Paragraphs
-├── Lists
-├── Tables
-├── Blocks
-├── Inline formatting
-├── Links and references
-├── Resolved attributes
-├── Anchors
-└── Diagnostics
-```
-
-### Render IR
-
-Captures what the output backend needs.
-
-```text
-Render IR
-├── Heading levels
-├── Rendered block tree
-├── Resolved links
-├── Resolved images
-├── Numbered sections
-├── Table layout
-├── Footnote placement
-├── Backend-specific passthroughs
-└── Final diagnostics
-```
-
----
-
-## Practical rule of thumb
-
-Model AsciiDoc as a **document tree with block nodes and inline nodes**.
-
-```text
-Document
-└── Blocks
-    └── Inline content where needed
-```
-
-The most important distinction is:
-
-| Category            | Examples                                                 | Purpose                                   |
-| ------------------- | -------------------------------------------------------- | ----------------------------------------- |
-| **Block nodes**     | section, paragraph, list, table, image block, admonition | Define document structure                 |
-| **Inline nodes**    | text, strong, emphasis, link, footnote                   | Define content inside text flow           |
-| **Metadata nodes**  | title, ID, roles, attributes, options                    | Modify or identify another element        |
-| **Processor nodes** | include, conditional, passthrough, diagnostic            | Control parsing, resolution, or rendering |
-
+When a format comparison helps, use it only to justify mapping, not to expand the IR by default.
